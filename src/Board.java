@@ -1,3 +1,9 @@
+/**
+ * Represents an n-by-n Tic-Tac-Toe board and provides operations
+ * for querying and placing marks on the board.
+ * 
+ * Indices are 0-based. The default board size is 4x4.
+ */
 public class Board {
 
     /** Default board dimension (creates a 4 x 4 board). */
@@ -6,7 +12,7 @@ public class Board {
     /** Board dimension n (the board is n x n). */
     private final int size;
 
-    /** Grid storing marks, indices starts from 0. */
+    /** Grid storing marks, indices start at 0. */
     private final Mark[][] cells;
 
     /**
@@ -77,7 +83,7 @@ public class Board {
     }
 
     /**
-     *Returns true if (row, col) is inside the board’s bounds.
+     * Returns true if (row, col) is inside the board's bounds.
      */
     private boolean inBounds(int row, int col) {
         return row >= 0 && row < this.size && col >= 0 && col < this.size;
