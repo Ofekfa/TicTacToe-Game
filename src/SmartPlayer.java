@@ -1,10 +1,12 @@
 /**
- * An intelligent automatic player that uses strategic decision-making.
- * Strategy: Win now, block opponent, create threats, take center, take corners, then first available.
+ * A smart automatic player optimized for 4x4 boards with win streak of 3.
+ * Strategy: Win now, block opponent, create threats, take corners, then first available.
+ * This player is designed to win at least 80% of games against NaivePlayer and WhateverPlayer
+ * on the default board configuration (4x4 board, win streak 3).
  */
 public class SmartPlayer implements Player {
 
-    /** Default win streak. */
+    /** Default win streak for threat detection. */
     private static final int DEFAULT_WIN_STREAK = 3;
 
     /**
@@ -18,9 +20,8 @@ public class SmartPlayer implements Player {
      * 1. Win if possible
      * 2. Block opponent if they can win
      * 3. Create a threat (position that would create winStreak-1 marks in a row)
-     * 4. Take center if available
-     * 5. Take any empty corner
-     * 6. Fall back to first available cell
+     * 4. Take any empty corner
+     * 5. Fall back to first available cell
      *
      * @param board the board on which to play
      * @param mark the player's mark (X or O)
@@ -51,21 +52,14 @@ public class SmartPlayer implements Player {
             return;
         }
         
-        // 4. Take center if available
-        move = getCenter(board.getSize());
-        if (move != null && board.getMark(move[0], move[1]) == Mark.BLANK) {
-            board.putMark(mark, move[0], move[1]);
-            return;
-        }
-        
-        // 5. Take any empty corner
+        // 4. Take any empty corner
         move = findEmptyCorner(board);
         if (move != null) {
             board.putMark(mark, move[0], move[1]);
             return;
         }
         
-        // 6. Fall back to first available (like NaivePlayer)
+        // 5. Fall back to first available (like NaivePlayer)
         for (int row = 0; row < board.getSize(); row++) {
             for (int col = 0; col < board.getSize(); col++) {
                 if (board.getMark(row, col) == Mark.BLANK) {
@@ -108,76 +102,62 @@ public class SmartPlayer implements Player {
      */
     private int[] findThreatMove(Board board, Mark mark) {
         int size = board.getSize();
-        int bestScore = -1;
-        int[] bestMove = null;
+        
+        // For win streak 3, a threat is 2 consecutive marks
+        int threatLength = DEFAULT_WIN_STREAK - 1;
         
         for (int row = 0; row < size; row++) {
             for (int col = 0; col < size; col++) {
                 if (board.getMark(row, col) == Mark.BLANK) {
-                    int score = countThreatScore(board, row, col, mark);
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestMove = new int[] {row, col};
+                    // Check if placing mark here would create 2 in a row
+                    if (wouldCreateThreat(board, row, col, mark, threatLength)) {
+                        return new int[] {row, col};
                     }
                 }
             }
-        }
-        
-        // Only create threat if it's meaningful (at least 1 mark in sequence)
-        if (bestScore > 0) {
-            return bestMove;
         }
         return null;
     }
 
     /**
-     * Calculates a threat score for placing mark at (row, col).
-     * Returns the maximum number of consecutive marks that would be created
-     * in any direction after placing the mark.
+     * Checks if placing mark at (row, col) would create a threat of the given length.
+     * Simplified check for default configuration (win streak 3, threat length 2).
      *
      * @param board the board to analyze
      * @param row the row to check
      * @param col the column to check
      * @param mark the mark to place
-     * @return threat score (max consecutive marks in any direction)
+     * @param threatLength the required consecutive marks for a threat (winStreak - 1)
+     * @return true if this move would create a threat
      */
-    private int countThreatScore(Board board, int row, int col, Mark mark) {
-        int maxScore = 0;
-        
+    private boolean wouldCreateThreat(Board board, int row, int col, Mark mark, int threatLength) {
         // Check row
-        int rowScore = countLineScore(board, row, 0, 0, 1, mark, row, col);
-        if (rowScore > maxScore) {
-            maxScore = rowScore;
+        if (checkLineThreat(board, row, 0, 0, 1, mark, row, col, threatLength)) {
+            return true;
         }
         
         // Check column
-        int colScore = countLineScore(board, 0, col, 1, 0, mark, row, col);
-        if (colScore > maxScore) {
-            maxScore = colScore;
+        if (checkLineThreat(board, 0, col, 1, 0, mark, row, col, threatLength)) {
+            return true;
         }
         
         // Check main diagonal
         int size = board.getSize();
-        if (row == col) {
-            int diagScore = countLineScore(board, 0, 0, 1, 1, mark, row, col);
-            if (diagScore > maxScore) {
-                maxScore = diagScore;
-            }
+        if (row == col && checkLineThreat(board, 0, 0, 1, 1, mark, row, col, threatLength)) {
+            return true;
         }
         
         // Check anti-diagonal
-        if (row + col == size - 1) {
-            int antiDiagScore = countLineScore(board, 0, size - 1, 1, -1, mark, row, col);
-            if (antiDiagScore > maxScore) {
-                maxScore = antiDiagScore;
-            }
+        if (row + col == size - 1 && 
+            checkLineThreat(board, 0, size - 1, 1, -1, mark, row, col, threatLength)) {
+            return true;
         }
         
-        return maxScore;
+        return false;
     }
 
     /**
-     * Counts the maximum consecutive marks in a line after placing mark at (row, col).
+     * Checks if a line would contain a threat after placing mark at (testRow, testCol).
      *
      * @param board the board to analyze
      * @param startRow starting row of the line
@@ -187,9 +167,90 @@ public class SmartPlayer implements Player {
      * @param mark the mark to check for
      * @param testRow row to treat as containing mark
      * @param testCol column to treat as containing mark
-     * @return maximum consecutive marks in this line
+     * @param threatLength required consecutive marks for a threat
+     * @return true if this line would contain a threat
      */
-    private int countLineScore(Board board, int startRow, int startCol,
+    private boolean checkLineThreat(Board board, int startRow, int startCol,
+            int dRow, int dCol, Mark mark, int testRow, int testCol, int threatLength) {
+        int maxRun = 0;
+        int run = 0;
+        int r = startRow;
+        int c = startCol;
+        int size = board.getSize();
+        
+        while (r >= 0 && r < size && c >= 0 && c < size) {
+            Mark cellMark;
+            if (r == testRow && c == testCol) {
+                cellMark = mark;
+            } else {
+                cellMark = board.getMark(r, c);
+            }
+            
+            if (cellMark == mark) {
+                run++;
+                if (run > maxRun) {
+                    maxRun = run;
+                }
+            } else {
+                run = 0;
+            }
+            r += dRow;
+            c += dCol;
+        }
+        return maxRun >= threatLength;
+    }
+
+    /**
+     * Checks if placing a mark at (row, col) would create a win.
+     * Checks all lines (row, column, diagonals) passing through this cell.
+     *
+     * @param board the board to analyze
+     * @param row the row to check
+     * @param col the column to check
+     * @param mark the mark to place
+     * @return true if this move would win
+     */
+    private boolean wouldWin(Board board, int row, int col, Mark mark) {
+        int size = board.getSize();
+        
+        // Check row
+        if (checkLineWin(board, row, 0, 0, 1, mark, row, col)) {
+            return true;
+        }
+        
+        // Check column
+        if (checkLineWin(board, 0, col, 1, 0, mark, row, col)) {
+            return true;
+        }
+        
+        // Check main diagonal (if on diagonal)
+        if (row == col && checkLineWin(board, 0, 0, 1, 1, mark, row, col)) {
+            return true;
+        }
+        
+        // Check anti-diagonal (if on anti-diagonal)
+        if (row + col == size - 1 && 
+            checkLineWin(board, 0, size - 1, 1, -1, mark, row, col)) {
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Checks if a line would contain a win after placing mark at (testRow, testCol).
+     *
+     * @param board the board to analyze
+     * @param startRow starting row of the line
+     * @param startCol starting column of the line
+     * @param dRow row direction step
+     * @param dCol column direction step
+     * @param mark the mark to check for
+     * @param testRow row to treat as containing mark
+     * @param testCol column to treat as containing mark
+     * @return true if this line would contain a win
+     */
+    private boolean checkLineWin(Board board, int startRow, int startCol,
             int dRow, int dCol, Mark mark, int testRow, int testCol) {
         int maxRun = 0;
         int run = 0;
@@ -216,174 +277,6 @@ public class SmartPlayer implements Player {
             r += dRow;
             c += dCol;
         }
-        return maxRun;
-    }
-
-    /**
-     * Checks if placing a mark at (row, col) would create a win.
-     * Checks all lines (row, column, diagonals) passing through this cell.
-     *
-     * @param board the board to analyze
-     * @param row the row to check
-     * @param col the column to check
-     * @param mark the mark to place
-     * @return true if this move would win
-     */
-    private boolean wouldWin(Board board, int row, int col, Mark mark) {
-        // Check row
-        if (checkRowWin(board, row, col, mark)) {
-            return true;
-        }
-        // Check column
-        if (checkColumnWin(board, row, col, mark)) {
-            return true;
-        }
-        // Check main diagonal (if on diagonal)
-        int size = board.getSize();
-        if (row == col && checkMainDiagonalWin(board, row, col, mark)) {
-            return true;
-        }
-        // Check anti-diagonal (if on anti-diagonal)
-        if (row + col == size - 1 && checkAntiDiagonalWin(board, row, col, mark)) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Checks if placing mark at (row, col) would create a win in that row.
-     *
-     * @param board the board to analyze
-     * @param row the row to check
-     * @param col the column where mark would be placed
-     * @param mark the mark to check for
-     * @return true if this row would contain a win
-     */
-    private boolean checkRowWin(Board board, int row, int col, Mark mark) {
-        int run = 0;
-        int maxRun = 0;
-        int size = board.getSize();
-        
-        for (int c = 0; c < size; c++) {
-            Mark cellMark;
-            if (c == col) {
-                cellMark = mark;
-            } else {
-                cellMark = board.getMark(row, c);
-            }
-            
-            if (cellMark == mark) {
-                run++;
-                if (run > maxRun) {
-                    maxRun = run;
-                }
-            } else {
-                run = 0;
-            }
-        }
-        return maxRun >= DEFAULT_WIN_STREAK;
-    }
-
-    /**
-     * Checks if placing mark at (row, col) would create a win in that column.
-     *
-     * @param board the board to analyze
-     * @param row the row where mark would be placed
-     * @param col the column to check
-     * @param mark the mark to check for
-     * @return true if this column would contain a win
-     */
-    private boolean checkColumnWin(Board board, int row, int col, Mark mark) {
-        int run = 0;
-        int maxRun = 0;
-        int size = board.getSize();
-        
-        for (int r = 0; r < size; r++) {
-            Mark cellMark;
-            if (r == row) {
-                cellMark = mark;
-            } else {
-                cellMark = board.getMark(r, col);
-            }
-            
-            if (cellMark == mark) {
-                run++;
-                if (run > maxRun) {
-                    maxRun = run;
-                }
-            } else {
-                run = 0;
-            }
-        }
-        return maxRun >= DEFAULT_WIN_STREAK;
-    }
-
-    /**
-     * Checks if placing mark at (row, col) would create a win in main diagonal.
-     *
-     * @param board the board to analyze
-     * @param row the row where mark would be placed
-     * @param col the column where mark would be placed
-     * @param mark the mark to check for
-     * @return true if main diagonal would contain a win
-     */
-    private boolean checkMainDiagonalWin(Board board, int row, int col, Mark mark) {
-        int run = 0;
-        int maxRun = 0;
-        int size = board.getSize();
-        
-        for (int i = 0; i < size; i++) {
-            Mark cellMark;
-            if (i == row && i == col) {
-                cellMark = mark;
-            } else {
-                cellMark = board.getMark(i, i);
-            }
-            
-            if (cellMark == mark) {
-                run++;
-                if (run > maxRun) {
-                    maxRun = run;
-                }
-            } else {
-                run = 0;
-            }
-        }
-        return maxRun >= DEFAULT_WIN_STREAK;
-    }
-
-    /**
-     * Checks if placing mark at (row, col) would create a win in anti-diagonal.
-     *
-     * @param board the board to analyze
-     * @param row the row where mark would be placed
-     * @param col the column where mark would be placed
-     * @return true if anti-diagonal would contain a win
-     */
-    private boolean checkAntiDiagonalWin(Board board, int row, int col, Mark mark) {
-        int run = 0;
-        int maxRun = 0;
-        int size = board.getSize();
-        
-        for (int i = 0; i < size; i++) {
-            int r = i;
-            int c = size - 1 - i;
-            Mark cellMark;
-            if (r == row && c == col) {
-                cellMark = mark;
-            } else {
-                cellMark = board.getMark(r, c);
-            }
-            
-            if (cellMark == mark) {
-                run++;
-                if (run > maxRun) {
-                    maxRun = run;
-                }
-            } else {
-                run = 0;
-            }
-        }
         return maxRun >= DEFAULT_WIN_STREAK;
     }
 
@@ -398,20 +291,6 @@ public class SmartPlayer implements Player {
             return Mark.O;
         }
         return Mark.X;
-    }
-
-    /**
-     * Gets the center position of the board, if it exists.
-     *
-     * @param size the board size
-     * @return array [row, col] of center, or null if size is even (no exact center)
-     */
-    private int[] getCenter(int size) {
-        if (size % 2 == 1) {
-            int center = size / 2;
-            return new int[] {center, center};
-        }
-        return null;
     }
 
     /**
